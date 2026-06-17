@@ -1,24 +1,44 @@
 steps:
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      [
-        "build",
-        "-t",
-        "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-training:$SHORT_SHA",
-        "-f",
-        "cloud-training/Dockerfile",
-        "."
-      ]
 
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      [
-        "push",
-        "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-training:$SHORT_SHA"
-      ]
+# Build training image
+- name: "gcr.io/cloud-builders/docker"
+  args:
+    [
+      "build",
+      "-t",
+      "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-training:$SHORT_SHA",
+      "-f",
+      "cloud-training/Dockerfile",
+      "."
+    ]
 
-images:
-  - "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-training:$SHORT_SHA"
+# Push training image
+- name: "gcr.io/cloud-builders/docker"
+  args:
+    [
+      "push",
+      "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-training:$SHORT_SHA"
+    ]
+
+# Build serving image
+- name: "gcr.io/cloud-builders/docker"
+  args:
+    [
+      "build",
+      "-t",
+      "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-cancellation:$SHORT_SHA",
+      "-f",
+      "serving/Dockerfile",
+      "."
+    ]
+
+# Push serving image
+- name: "gcr.io/cloud-builders/docker"
+  args:
+    [
+      "push",
+      "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-cancellation:$SHORT_SHA"
+    ]
 
 options:
   logging: CLOUD_LOGGING_ONLY
