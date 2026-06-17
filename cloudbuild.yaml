@@ -6,7 +6,7 @@ steps:
         "-t",
         "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-training:$SHORT_SHA",
         "-f",
-        "training/Dockerfile",
+        "serving/Dockerfile",
         "."
       ]
 
