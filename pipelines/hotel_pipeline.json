@@ -1,5 +1,110 @@
 {
   "components": {
+    "comp-condition-1": {
+      "dag": {
+        "tasks": {
+          "model-deploy": {
+            "cachingOptions": {
+              "enableCache": true
+            },
+            "componentRef": {
+              "name": "comp-model-deploy"
+            },
+            "inputs": {
+              "artifacts": {
+                "endpoint": {
+                  "componentInputArtifact": "pipelinechannel--importer-2-artifact"
+                },
+                "model": {
+                  "componentInputArtifact": "pipelinechannel--model-upload-model"
+                }
+              },
+              "parameters": {
+                "dedicated_resources_machine_type": {
+                  "runtimeValue": {
+                    "constant": "e2-standard-2"
+                  }
+                },
+                "dedicated_resources_max_replica_count": {
+                  "runtimeValue": {
+                    "constant": 1.0
+                  }
+                },
+                "dedicated_resources_min_replica_count": {
+                  "runtimeValue": {
+                    "constant": 1.0
+                  }
+                },
+                "deployed_model_display_name": {
+                  "runtimeValue": {
+                    "constant": "hotel-cancellation-pipeline-deployment"
+                  }
+                },
+                "traffic_split": {
+                  "runtimeValue": {
+                    "constant": {
+                      "0": 100.0
+                    }
+                  }
+                }
+              }
+            },
+            "taskInfo": {
+              "name": "model-deploy"
+            }
+          },
+          "promote-metrics": {
+            "cachingOptions": {
+              "enableCache": true
+            },
+            "componentRef": {
+              "name": "comp-promote-metrics"
+            },
+            "dependentTasks": [
+              "model-deploy"
+            ],
+            "inputs": {
+              "parameters": {
+                "candidate_metrics_uri": {
+                  "runtimeValue": {
+                    "constant": "gs://burner-neisincl-ml-pipeline-artefacts/models/hotel-cancellation-vertex-training/candidates/metrics.json"
+                  }
+                },
+                "production_metrics_uri": {
+                  "runtimeValue": {
+                    "constant": "gs://burner-neisincl-ml-pipeline-artefacts/models/hotel-cancellation-vertex-training/production/metrics.json"
+                  }
+                }
+              }
+            },
+            "taskInfo": {
+              "name": "promote-metrics"
+            }
+          }
+        }
+      },
+      "inputDefinitions": {
+        "artifacts": {
+          "pipelinechannel--importer-2-artifact": {
+            "artifactType": {
+              "schemaTitle": "google.VertexEndpoint",
+              "schemaVersion": "0.0.1"
+            }
+          },
+          "pipelinechannel--model-upload-model": {
+            "artifactType": {
+              "schemaTitle": "google.VertexModel",
+              "schemaVersion": "0.0.1"
+            }
+          }
+        },
+        "parameters": {
+          "pipelinechannel--deployment-gate-Output": {
+            "parameterType": "STRING"
+          }
+        }
+      }
+    },
     "comp-custom-training-job": {
       "executorLabel": "exec-custom-training-job",
       "inputDefinitions": {
@@ -116,6 +221,26 @@
         "parameters": {
           "gcp_resources": {
             "description": "Serialized JSON of `gcp_resources` [proto](https://github.com/kubeflow/pipelines/tree/master/components/google-cloud/google_cloud_pipeline_components/proto) which tracks the CustomJob.",
+            "parameterType": "STRING"
+          }
+        }
+      }
+    },
+    "comp-deployment-gate": {
+      "executorLabel": "exec-deployment-gate",
+      "inputDefinitions": {
+        "parameters": {
+          "candidate_metrics_uri": {
+            "parameterType": "STRING"
+          },
+          "production_metrics_uri": {
+            "parameterType": "STRING"
+          }
+        }
+      },
+      "outputDefinitions": {
+        "parameters": {
+          "Output": {
             "parameterType": "STRING"
           }
         }
@@ -373,6 +498,19 @@
           }
         }
       }
+    },
+    "comp-promote-metrics": {
+      "executorLabel": "exec-promote-metrics",
+      "inputDefinitions": {
+        "parameters": {
+          "candidate_metrics_uri": {
+            "parameterType": "STRING"
+          },
+          "production_metrics_uri": {
+            "parameterType": "STRING"
+          }
+        }
+      }
     }
   },
   "deploymentSpec": {
@@ -400,10 +538,30 @@
           "image": "gcr.io/ml-pipeline/google-cloud-pipeline-components:2.22.0"
         }
       },
+      "exec-deployment-gate": {
+        "container": {
+          "args": [
+            "--executor_input",
+            "{{$}}",
+            "--function_to_execute",
+            "deployment_gate"
+          ],
+          "command": [
+            "sh",
+            "-c",
+            "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location 'google-cloud-storage'  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.1' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"$0\" \"$@\"\n",
+            "sh",
+            "-ec",
+            "program_path=$(mktemp -d)\n\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\n_KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef deployment_gate(\n    candidate_metrics_uri: str,\n    production_metrics_uri: str,\n) -> str:\n\n    import json\n    from google.cloud import storage\n\n    storage_client = storage.Client()\n\n    def load_metrics(uri: str):\n\n        bucket_name = uri.replace(\"gs://\", \"\").split(\"/\")[0]\n        blob_path = \"/\".join(\n            uri.replace(\"gs://\", \"\").split(\"/\")[1:]\n        )\n\n        bucket = storage_client.bucket(bucket_name)\n\n        return json.loads(\n            bucket.blob(blob_path).download_as_text()\n        )\n\n    candidate = load_metrics(candidate_metrics_uri)\n\n    candidate_auc = float(candidate[\"auc\"])\n\n    print(\n        f\"Candidate AUC = {candidate_auc}\"\n    )\n\n    try:\n        production = load_metrics(\n            production_metrics_uri\n        )\n\n        production_auc = float(\n            production[\"auc\"]\n        )\n\n    except Exception:\n\n        print(\n            \"No production metrics found\"\n        )\n\n        return \"DEPLOY\"\n\n    print(\n        f\"Production AUC = {production_auc}\"\n    )\n\n    if candidate_auc > production_auc:\n        return \"DEPLOY\"\n\n    return \"SKIP\"\n\n"
+          ],
+          "image": "python:3.12"
+        }
+      },
       "exec-importer": {
         "importer": {
           "artifactUri": {
-            "constant": "gs://burner-neisincl-ml-pipeline-artefacts/models/hotel-cancellation-vertex-training/"
+            "constant": "gs://burner-neisincl-ml-pipeline-artefacts/models/hotel-cancellation-vertex-training"
           },
           "metadata": {
             "containerSpec": {
@@ -426,10 +584,10 @@
       "exec-importer-2": {
         "importer": {
           "artifactUri": {
-            "constant": "projects/burner-neisincl/locations/us-central1/endpoints/5254179590804340736"
+            "constant": "projects/burner-neisincl/locations/us-central1/endpoints/1341395939549511680"
           },
           "metadata": {
-            "resourceName": "projects/burner-neisincl/locations/us-central1/endpoints/5254179590804340736"
+            "resourceName": "projects/burner-neisincl/locations/us-central1/endpoints/1341395939549511680"
           },
           "typeSchema": {
             "schemaTitle": "google.VertexEndpoint",
@@ -485,6 +643,26 @@
           ],
           "image": "gcr.io/ml-pipeline/google-cloud-pipeline-components:2.22.0"
         }
+      },
+      "exec-promote-metrics": {
+        "container": {
+          "args": [
+            "--executor_input",
+            "{{$}}",
+            "--function_to_execute",
+            "promote_metrics"
+          ],
+          "command": [
+            "sh",
+            "-c",
+            "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location 'google-cloud-storage'  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.1' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"$0\" \"$@\"\n",
+            "sh",
+            "-ec",
+            "program_path=$(mktemp -d)\n\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\n_KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef promote_metrics(\n    candidate_metrics_uri: str,\n    production_metrics_uri: str,\n):\n\n    from google.cloud import storage\n\n    storage_client = storage.Client()\n\n    def parse_uri(uri):\n\n        bucket_name = uri.replace(\n            \"gs://\",\n            \"\"\n        ).split(\"/\")[0]\n\n        blob_path = \"/\".join(\n            uri.replace(\n                \"gs://\",\n                \"\"\n            ).split(\"/\")[1:]\n        )\n\n        return bucket_name, blob_path\n\n    candidate_bucket, candidate_blob = (\n        parse_uri(candidate_metrics_uri)\n    )\n\n    production_bucket, production_blob = (\n        parse_uri(production_metrics_uri)\n    )\n\n    source_bucket = storage_client.bucket(\n        candidate_bucket\n    )\n\n    destination_bucket = (\n        storage_client.bucket(\n            production_bucket\n        )\n    )\n\n    source_bucket.copy_blob(\n        source_bucket.blob(candidate_blob),\n        destination_bucket,\n        production_blob,\n    )\n\n"
+          ],
+          "image": "python:3.12"
+        }
       }
     }
   },
@@ -494,6 +672,46 @@
   "root": {
     "dag": {
       "tasks": {
+        "condition-1": {
+          "componentRef": {
+            "name": "comp-condition-1"
+          },
+          "dependentTasks": [
+            "deployment-gate",
+            "importer-2",
+            "model-upload"
+          ],
+          "inputs": {
+            "artifacts": {
+              "pipelinechannel--importer-2-artifact": {
+                "taskOutputArtifact": {
+                  "outputArtifactKey": "artifact",
+                  "producerTask": "importer-2"
+                }
+              },
+              "pipelinechannel--model-upload-model": {
+                "taskOutputArtifact": {
+                  "outputArtifactKey": "model",
+                  "producerTask": "model-upload"
+                }
+              }
+            },
+            "parameters": {
+              "pipelinechannel--deployment-gate-Output": {
+                "taskOutputParameter": {
+                  "outputParameterKey": "Output",
+                  "producerTask": "deployment-gate"
+                }
+              }
+            }
+          },
+          "taskInfo": {
+            "name": "condition-1"
+          },
+          "triggerPolicy": {
+            "condition": "inputs.parameter_values['pipelinechannel--deployment-gate-Output'] == 'DEPLOY'"
+          }
+        },
         "custom-training-job": {
           "cachingOptions": {
             "enableCache": true
@@ -542,6 +760,31 @@
             "name": "custom-training-job"
           }
         },
+        "deployment-gate": {
+          "cachingOptions": {
+            "enableCache": true
+          },
+          "componentRef": {
+            "name": "comp-deployment-gate"
+          },
+          "inputs": {
+            "parameters": {
+              "candidate_metrics_uri": {
+                "runtimeValue": {
+                  "constant": "gs://burner-neisincl-ml-pipeline-artefacts/candidates/metrics.json"
+                }
+              },
+              "production_metrics_uri": {
+                "runtimeValue": {
+                  "constant": "gs://burner-neisincl-ml-pipeline-artefacts/production/metrics.json"
+                }
+              }
+            }
+          },
+          "taskInfo": {
+            "name": "deployment-gate"
+          }
+        },
         "importer": {
           "cachingOptions": {
             "enableCache": true
@@ -559,7 +802,7 @@
               },
               "uri": {
                 "runtimeValue": {
-                  "constant": "gs://burner-neisincl-ml-pipeline-artefacts/models/hotel-cancellation-vertex-training/"
+                  "constant": "gs://burner-neisincl-ml-pipeline-artefacts/models/hotel-cancellation-vertex-training"
                 }
               }
             }
@@ -579,73 +822,13 @@
             "parameters": {
               "uri": {
                 "runtimeValue": {
-                  "constant": "projects/burner-neisincl/locations/us-central1/endpoints/5254179590804340736"
+                  "constant": "projects/burner-neisincl/locations/us-central1/endpoints/1341395939549511680"
                 }
               }
             }
           },
           "taskInfo": {
             "name": "importer-2"
-          }
-        },
-        "model-deploy": {
-          "cachingOptions": {
-            "enableCache": true
-          },
-          "componentRef": {
-            "name": "comp-model-deploy"
-          },
-          "dependentTasks": [
-            "importer-2",
-            "model-upload"
-          ],
-          "inputs": {
-            "artifacts": {
-              "endpoint": {
-                "taskOutputArtifact": {
-                  "outputArtifactKey": "artifact",
-                  "producerTask": "importer-2"
-                }
-              },
-              "model": {
-                "taskOutputArtifact": {
-                  "outputArtifactKey": "model",
-                  "producerTask": "model-upload"
-                }
-              }
-            },
-            "parameters": {
-              "dedicated_resources_machine_type": {
-                "runtimeValue": {
-                  "constant": "e2-standard-2"
-                }
-              },
-              "dedicated_resources_max_replica_count": {
-                "runtimeValue": {
-                  "constant": 1.0
-                }
-              },
-              "dedicated_resources_min_replica_count": {
-                "runtimeValue": {
-                  "constant": 1.0
-                }
-              },
-              "deployed_model_display_name": {
-                "runtimeValue": {
-                  "constant": "hotel-cancellation-pipeline-deployment"
-                }
-              },
-              "traffic_split": {
-                "runtimeValue": {
-                  "constant": {
-                    "0": 100.0
-                  }
-                }
-              }
-            }
-          },
-          "taskInfo": {
-            "name": "model-deploy"
           }
         },
         "model-upload": {

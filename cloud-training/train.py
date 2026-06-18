@@ -1,6 +1,7 @@
 from google.cloud import bigquery, storage
 import os
 import joblib
+import json
 
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
@@ -21,9 +22,12 @@ client = bigquery.Client(project=PROJECT_ID)
 
 print(f" --- Training model ---")
 print("Loading data...")
+
+# Take roughly 80% of the data to simulate getting slightly different data each time
 query = f"""
 SELECT *
 FROM `{TABLE}`
+WHERE RAND() < 0.8
 """
 
 df = client.query(query).to_dataframe()
@@ -71,8 +75,17 @@ model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
 y_proba = model.predict_proba(X_test)[:, 1]
 
+auc = roc_auc_score(y_test, y_proba)
+
+metrics = {
+    "auc": float(auc)
+}
+
+with open("/tmp/metrics.json", "w") as f:
+    json.dump(metrics, f)
+
 print(classification_report(y_test, y_pred))
-print("ROC AUC:", roc_auc_score(y_test, y_proba))
+print("ROC AUC:", auc)
 
 print("Saving model...")
 
@@ -83,6 +96,12 @@ joblib.dump(model, local_model_path)
 
 storage_client = storage.Client(project=PROJECT_ID)
 bucket = storage_client.bucket(MODEL_BUCKET)
+# Upload model
 blob = bucket.blob(f"{MODEL_PREFIX}/model.joblib")
 blob.upload_from_filename(local_model_path)
+
+# Upload Metrics
+blob = bucket.blob(f"{MODEL_PREFIX}/candidates/metrics.json")
+blob.upload_from_filename("/tmp/metrics.json")
+
 print(f"Uploaded model to gs://{MODEL_BUCKET}/{MODEL_PREFIX}/model.joblib")
