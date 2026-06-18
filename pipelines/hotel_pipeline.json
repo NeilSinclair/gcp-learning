@@ -125,6 +125,9 @@
       "executorLabel": "exec-importer",
       "inputDefinitions": {
         "parameters": {
+          "metadata": {
+            "parameterType": "STRING"
+          },
           "uri": {
             "parameterType": "STRING"
           }
@@ -405,7 +408,7 @@
           "metadata": {
             "containerSpec": {
               "healthRoute": "/health",
-              "imageUri": "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-cancellation:v3",
+              "imageUri": "{{$.inputs.parameters['metadata']}}",
               "ports": [
                 {
                   "containerPort": 8080.0
@@ -510,6 +513,9 @@
                   "constant": "us-central1"
                 }
               },
+              "pipelinechannel--training_image_uri": {
+                "componentInputParameter": "training_image_uri"
+              },
               "project": {
                 "runtimeValue": {
                   "constant": "burner-neisincl"
@@ -520,7 +526,7 @@
                   "constant": [
                     {
                       "container_spec": {
-                        "image_uri": "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-training:v1"
+                        "image_uri": "{{$.inputs.parameters['pipelinechannel--training_image_uri']}}"
                       },
                       "machine_spec": {
                         "machine_type": "e2-standard-4"
@@ -548,6 +554,9 @@
           ],
           "inputs": {
             "parameters": {
+              "metadata": {
+                "componentInputParameter": "serving_image_uri"
+              },
               "uri": {
                 "runtimeValue": {
                   "constant": "gs://burner-neisincl-ml-pipeline-artefacts/models/hotel-cancellation-vertex-training/"
@@ -679,6 +688,16 @@
           "taskInfo": {
             "name": "model-upload"
           }
+        }
+      }
+    },
+    "inputDefinitions": {
+      "parameters": {
+        "serving_image_uri": {
+          "parameterType": "STRING"
+        },
+        "training_image_uri": {
+          "parameterType": "STRING"
         }
       }
     }

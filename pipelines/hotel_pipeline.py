@@ -14,11 +14,14 @@ TRAINING_IMAGE = "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-tra
 SERVING_IMAGE = "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-cancellation:v3"
 
 MODEL_ARTIFACT_URI = "gs://burner-neisincl-ml-pipeline-artefacts/models/hotel-cancellation-vertex-training/"
-ENDPOINT_ID = "5254179590804340736"
+ENDPOINT_ID = "1341395939549511680"
 
 
 @dsl.pipeline(name="hotel-cancellation-pipeline")
-def hotel_pipeline():
+def hotel_pipeline(
+    training_image_uri: str,
+    serving_image_uri: str,
+):
     train_job = CustomTrainingJobOp(
         display_name="hotel-training",
         project=PROJECT_ID,
@@ -27,7 +30,7 @@ def hotel_pipeline():
             {
                 "machine_spec": {"machine_type": "e2-standard-4"},
                 "replica_count": 1,
-                "container_spec": {"image_uri": TRAINING_IMAGE},
+                "container_spec": {"image_uri": training_image_uri},
             }
         ],
     )
@@ -37,7 +40,7 @@ def hotel_pipeline():
         artifact_class=artifact_types.UnmanagedContainerModel,
         metadata={
             "containerSpec": {
-                "imageUri": SERVING_IMAGE,
+                "imageUri": serving_image_uri,
                 "predictRoute": "/predict",
                 "healthRoute": "/health",
                 "ports": [{"containerPort": 8080}],

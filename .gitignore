@@ -1,2 +1,4 @@
 .venv/
 .env
+*.pyc
+pipelines/__pycache__/hotel_pipeline.cpython-312.pyc

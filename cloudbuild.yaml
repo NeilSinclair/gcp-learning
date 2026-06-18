@@ -40,5 +40,16 @@ steps:
       "us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-cancellation:$SHORT_SHA"
     ]
 
+- name: "python:3.12-slim"
+  entrypoint: "bash"
+  args:
+    - "-c"
+    - |
+      pip install google-cloud-aiplatform kfp google-cloud-pipeline-components
+      python pipelines/compile_pipeline.py
+      python pipelines/run_pipeline.py \
+        --training-image-uri us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-training:$SHORT_SHA \
+        --serving-image-uri us-central1-docker.pkg.dev/burner-neisincl/ml-models/hotel-cancellation:$SHORT_SHA
+
 options:
   logging: CLOUD_LOGGING_ONLY
