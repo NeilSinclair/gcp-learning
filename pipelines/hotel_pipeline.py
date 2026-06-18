@@ -40,17 +40,12 @@ def deployment_gate(
     storage_client = storage.Client()
 
     def load_metrics(uri: str):
-
         bucket_name = uri.replace("gs://", "").split("/")[0]
-        blob_path = "/".join(
-            uri.replace("gs://", "").split("/")[1:]
-        )
+        blob_path = "/".join(uri.replace("gs://", "").split("/")[1:])
 
         bucket = storage_client.bucket(bucket_name)
 
-        return json.loads(
-            bucket.blob(blob_path).download_as_text()
-        )
+        return json.loads(bucket.blob(blob_path).download_as_text())
 
     candidate = load_metrics(candidate_metrics_uri)
 
@@ -60,13 +55,10 @@ def deployment_gate(
 
     try:
         production = load_metrics(production_metrics_uri)
-
         production_auc = float(production["auc"])
 
     except Exception:
-
         print("No production metrics found")
-
         return "DEPLOY"
 
     print(f"Production AUC = {production_auc}")
@@ -178,6 +170,7 @@ def hotel_pipeline(
     )
 
     gate = deployment_gate(candidate_metrics_uri=CANDIDATE_METRICS_URI, production_metrics_uri=PRODUCTION_METRICS_URI)
+    gate.after(upload_model)
 
     with dsl.If(gate.output == "DEPLOY"):
         deploy_model = ModelDeployOp(
